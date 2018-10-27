@@ -48,6 +48,11 @@ enum en_os_shell_type{
 };
 
 #define BUILD_VAR_NAME(A,B)    A##B
+#define  MAX_TAB_MATCHES			16
+struct shell_tab_matches {
+	const char *matches[MAX_TAB_MATCHES];
+	u16_t len;
+};
 
 //this is the shell function module.the register function must have the same type
 //uptils now, we don't care the return value

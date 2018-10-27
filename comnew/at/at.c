@@ -40,7 +40,7 @@
 
 //these defines could be moved to the configuration of the at module
 #define cn_at_oob_len           6            //only allow 6 oob command monitor here,you could configure it more
-#define cn_at_resp_maxlen      256           //PROSING THAT COULD GET THE MOST REPSLENGTH
+#define cn_at_resp_maxlen      768           //PROSING THAT COULD GET THE MOST REPSLENGTH
 
 
 //at control block here

@@ -129,7 +129,7 @@ static bool_t __cgatt_check(void)  //return true ,read get else failed
 }
 
 #define cn_5320e_socket_max 9
-#define cn_5320e_socket_rcvlen 256
+#define cn_5320e_socket_rcvlen 768
 struct socket_item
 {
     char host[24];
@@ -263,6 +263,7 @@ static s32_t socket_send(s32_t fd, u8_t *buf,s32_t len)
     {
         return ret;
     }
+     
 
     item =  g_socket_cb[fd];
     if(mutex_lock(item->mutex))

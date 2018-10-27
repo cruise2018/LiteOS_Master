@@ -87,12 +87,11 @@ struct shell_buffer_t{
 /**************************************FILE VARS*******************************/
 //define your global variables here
 static  char *gs_welcome_info= "WELCOME TO LITEOS SHELL";
-
 /**************************************FILE FUNCTIONS**************************/
 //functions import
 extern s32_t shell_cmd_execute(char *param);            //execute the command
 extern s32_t shell_cmd_init(void);                      //do the command table load
-extern const char *shell_cmd_index(const char *index);  //find the most like command
+extern const struct shell_tab_matches *shell_cmd_index(const char *index);  //find the most like command
 //functions export
 void shell_install(void);                                   //install the shell component
 
@@ -119,7 +118,7 @@ function     :function used to put a string
 parameters   :
 instruction  :you could reimplement by redirection
 *******************************************************************************/
-static void  shell_put_string(char *str){
+static void  shell_put_string(const char *str){
     int len;
     int i;
     len = strlen(str);
@@ -180,6 +179,14 @@ static void  shell_moves_cursor_right(int times,u32_t vk){
 	}
 }
 /*******************************************************************************
+function     :function used ring the terminal's bell
+parameters   :
+instruction  :
+*******************************************************************************/
+static void shell_bell() {
+	shell_put_char('\a');
+}
+/*******************************************************************************
 function     :function used to move cursor left
 parameters   :
 instruction  :
@@ -216,6 +223,30 @@ static void shell_cachecmd(struct shell_buffer_t *tab){
 }
 
 /*******************************************************************************
+function     :insert string at the cursor's position
+parameters   :
+instruction  :check if it has been cached.
+*******************************************************************************/
+static void shell_insert_string(struct shell_buffer_t *tab, const char *str) {
+	char *cursor;
+	cursor = tab->curcmd + tab->curoffset;
+	int cursor_len = strlen(cursor);
+	int str_len = strlen(str);
+	shell_put_string(str);
+	shell_put_string(cursor);
+	shell_moves_cursor_left(cursor_len);
+	
+	tab->curoffset += str_len;
+	cursor = tab->curcmd + strlen(tab->curcmd) + str_len;
+	*(cursor--) = 0;
+	for (int i = 0; i < cursor_len; i++) {
+		*cursor = *(cursor - str_len);
+		cursor--;
+	}
+	cursor = cursor - (str_len - 1);
+	strncpy(cursor, str, str_len);
+}
+/*******************************************************************************
 function     :this is the  shell server task entry
 parameters   :
 instruction  :we get character from the input device each time,cached it in the 
@@ -229,7 +260,6 @@ static u32_t shell_server_entry(void *args){
 	u32_t   vk = CN_VIRTUAL_KEY_NULL;    
 	u32_t   vkmask = CN_VIRTUAL_KEY_NULL;
     struct shell_buffer_t shell_cmd_cache; 
-	const char *cmdindex;
 
 	memset(&shell_cmd_cache,0,sizeof(shell_cmd_cache));  //initialize the buffer
 	shell_put_string(gs_welcome_info);     //put the welcome information
@@ -259,7 +289,8 @@ static u32_t shell_server_entry(void *args){
 					shell_cmd_cache.curoffset--;
 					//push back the left cursor and make the terminal display know what has happened
 					shell_moves_cursor_left(1);
-				}
+				}else
+					shell_bell();
 				//flush the vk
 				vk = CN_VIRTUAL_KEY_NULL;
 				vkmask = CN_VIRTUAL_KEY_NULL;
@@ -270,7 +301,8 @@ static u32_t shell_server_entry(void *args){
 					shell_cmd_cache.curoffset++;
 					//push back the right cursor and make the terminal display know what has happened
 					shell_moves_cursor_right(1,vk);
-				}
+				} else
+				shell_bell();
 				//flush the vk
 				vk = CN_VIRTUAL_KEY_NULL;
 				vkmask = CN_VIRTUAL_KEY_NULL;
@@ -321,27 +353,29 @@ static u32_t shell_server_entry(void *args){
 				break;
 			case CN_KEY_TAB:      //tab,should auto complete the command
 				//should search the command we has installed if some index has get
-				len = strlen(shell_cmd_cache.curcmd);
-				if(len > 0) {
-					cmdindex = shell_cmd_index((const char*)shell_cmd_cache.curcmd);
-					if(NULL != cmdindex) {
-						//first,we should clear what we has get,do the reset current command
-						//first moves to the right,then backspace all the input
-						len = strlen(shell_cmd_cache.curcmd);
-						if(shell_cmd_cache.curoffset < len){
-							shell_put_space(len - shell_cmd_cache.curoffset);
-							shell_cmd_cache.curoffset = len;
+				if(shell_cmd_cache.curoffset > 0) {
+					char cursor = shell_cmd_cache.curcmd[shell_cmd_cache.curoffset];
+					shell_cmd_cache.curcmd[shell_cmd_cache.curoffset] = 0;
+					const struct shell_tab_matches *matches;
+					matches = shell_cmd_index((const char*)shell_cmd_cache.curcmd);
+					shell_cmd_cache.curcmd[shell_cmd_cache.curoffset] = cursor;
+					if (matches->len == 1) {
+						//only one cmd matched, insert the matched cmd at current cursor
+						shell_insert_string(&shell_cmd_cache, matches->matches[0] + shell_cmd_cache.curoffset);
+					} else if (matches->len > 1) {
+						printf("\n\r");
+						for (int i = 0; i < matches->len; i++) {
+							shell_put_string(matches->matches[i]);
+							shell_put_char('\t');
 						}
-						shell_put_backspace(len);
-						memset(shell_cmd_cache.curcmd,0,CN_CMDLEN_MAX);
-						shell_cmd_cache.curoffset = 0;
-						//then copy the command and puts the string here
-						strncpy(shell_cmd_cache.curcmd,cmdindex,CN_CMDLEN_MAX);
-						shell_cmd_cache.curoffset = strlen(shell_cmd_cache.curcmd);
-						//OK,now puts all the current character to the terminal
+						printf("\n\r");
+						shell_put_index();
 						shell_put_string(shell_cmd_cache.curcmd);
-					}
-				}
+						shell_moves_cursor_left(strlen(shell_cmd_cache.curcmd) - shell_cmd_cache.curoffset);
+					} else 
+						shell_bell();
+				} else
+					shell_bell();
 				//flush the vk
 				vk = CN_VIRTUAL_KEY_NULL;
 				vkmask = CN_VIRTUAL_KEY_NULL;
@@ -376,34 +410,35 @@ static u32_t shell_server_entry(void *args){
 				break;
 			case CN_KEY_BS:      //should delete the current character,move all the following character 1 position to before
 				if(shell_cmd_cache.curoffset >0){
-					shell_cmd_cache.curcmd[shell_cmd_cache.curoffset] = 0;
+					char *substr = shell_cmd_cache.curcmd + shell_cmd_cache.curoffset;
+					int len = strlen(substr);
+					shell_put_char('\b');
+					shell_put_string(substr);
+					shell_put_char(' ');
+					shell_moves_cursor_left(len + 1);
+					
+					strcpy(substr - 1, substr);
 					shell_cmd_cache.curoffset--;
-					shell_put_backspace(1);
-				}
+				} else
+					shell_bell();
 				//flush the vk
 				vk = CN_VIRTUAL_KEY_NULL;
 				vkmask = CN_VIRTUAL_KEY_NULL;
 				break;
 			case CN_KEY_ES:      //esc key,delete all the input here
-				len = strlen(shell_cmd_cache.curcmd);
-				if(shell_cmd_cache.curoffset < len){
-					shell_put_space(len - shell_cmd_cache.curoffset);
-					shell_cmd_cache.curoffset = len;
-				}
-				shell_put_backspace(len);
-				memset(shell_cmd_cache.curcmd,0,CN_CMDLEN_MAX);
-				shell_cmd_cache.curoffset = 0;
-				//this is also the transfer code
 				vk= CN_KEY_ES;
 				vkmask = CN_KEY_ES;
 				break;
 			default: //other control character will be ignored
 				//push the character to the buffer until its full and the '\n' comes
 				if(shell_cmd_cache.curoffset <(CN_CMDLEN_MAX-1)){
-					shell_cmd_cache.curcmd[shell_cmd_cache.curoffset] = ch;
-					shell_cmd_cache.curoffset++;
-					shell_put_char(ch);   //should do the echo
-				}
+					char *p = (char *)&ch;
+					if (*p == 0)
+						// this architecture is big-endian
+						*p = (char)ch;	
+					shell_insert_string(&shell_cmd_cache, p);
+				} else
+					shell_bell();
 				//flush the vk
 				vk = CN_VIRTUAL_KEY_NULL;
 				vkmask = CN_VIRTUAL_KEY_NULL;

@@ -71,12 +71,12 @@ static const char *gs_os_shell_type[EN_OSSHELL_LAST]={
 	"CMD",\
 	"VAR",
 };//this will be used in show the shell type
-
+static struct shell_tab_matches tab_matches;
 /**************************************FILE FUNCTIONS**************************/
 //export functions
 s32_t shell_cmd_execute(char *param);            //execute the command
 s32_t shell_cmd_init(void);                      //do the command table load
-const char *shell_cmd_index(const char *index);  //find the most like command
+const struct shell_tab_matches *shell_cmd_index(const char *index);  //find the most like command
 
 
 /**************************************FILE FUNCIMPLEMENT**********************/
@@ -142,28 +142,26 @@ function     :used to find the most like command
 parameters   :
 instruction  :
 *******************************************************************************/
-const char *shell_cmd_index(const char *index){
+const struct shell_tab_matches *shell_cmd_index(const char *index){
     struct shell_item_t *item;
-    const char *ret = NULL;
 	s32_t i;
 	//search the static tab first,if not found then find the dynamic tab
-	for(i = 0;i <gs_shell_cb.s_num;i++){
+	tab_matches.len = 0;
+	for(i = 0;i <gs_shell_cb.s_num && tab_matches.len < MAX_TAB_MATCHES; i++){
 		item = &(gs_shell_cb.s[i]);
-		if(NULL != strstr(item->name,index)){
-			ret = item->name;
-			break;
+		if (strncmp(item->name, index, strlen(index)) == 0) {
+			tab_matches.matches[tab_matches.len++] = item->name;
 		}
 	}
-	if(NULL == item){
-		for(i = 0;i <gs_shell_cb.d_num;i++){
-			item = &(gs_shell_cb.d[i]);
-			if(NULL!= strstr(item->name,index)){
-				ret = item->name;
-				break;
-			}
+	
+	for(i = 0;i <gs_shell_cb.d_num && tab_matches.len < MAX_TAB_MATCHES; i++){
+		item = &(gs_shell_cb.d[i]);
+		if(strncmp(item->name, index, strlen(index)) == 0){
+			tab_matches.matches[tab_matches.len++] = item->name;
 		}
 	}
-    return ret;
+	
+    return &tab_matches;
 }
 
 /*******************************************************************************
