@@ -410,8 +410,8 @@ bool_t at_install(fnframe_read func_read,fnframe_write func_write)
     g_at_cb.write = func_write;
     
     //for the debug
-    g_at_cb.rxdebugmode = en_at_debug_ascii;
-    g_at_cb.txdebugmode = en_at_debug_ascii;
+    //g_at_cb.rxdebugmode = en_at_debug_ascii;
+    //g_at_cb.txdebugmode = en_at_debug_ascii;
   
     ret = true;
     return ret;

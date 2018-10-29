@@ -43,19 +43,12 @@
 
 #ifdef HAL_FLASH_MODULE_ENABLED
 
-#define FLASH_SECTOR_ILEGAL      0xFFFFFFFF
-#define ADDR_FLASH_SECTOR_0      ((u32_t)0x08000000) /* Base address of Sector 0, 2 Kbytes   */
-#define ADDR_FLASH_SECTOR_END    ((u32_t)0x08080000) /* End address of Sector 256 */
-
-
 //F44RE:FLASH ARE ORGNAZIED BY 16 16 16 16 64 128 128 128 ==512KB could only be erased by SECTOR OR FULL CHIP
 #define cn_flash_baseaddr     0x08000000
 #define cn_flash_kbyte        1024
 #define cn_flash_sector_num   8
 static u32_t  s_flash_secsize_tab[cn_flash_sector_num] = {16*cn_flash_kbyte,16*cn_flash_kbyte,16*cn_flash_kbyte,16*cn_flash_kbyte,\
                                        64*cn_flash_kbyte,128*cn_flash_kbyte,128*cn_flash_kbyte,128*cn_flash_kbyte};
-
-                                       
 
 static bool_t __flash_addr2sector(u32_t addr, u32_t *sector)
 {
@@ -106,45 +99,20 @@ int hal_flash_read(void* buf, s32_t len, u32_t location)
     }
 }
 
-int hal_flash_erase(u32_t addr, s32_t len)
+void hal_flash_lock(void)
 {
-    s32_t ret = -1;
-    u32_t begin_sector;
-    u32_t end_sector;
-    u32_t i;
-    u32_t sector_err;
-    
-    
-    FLASH_EraseInitTypeDef para;
-    
-    if(false == __flash_addr2sector(addr,&begin_sector))
-    {
-        return ret;
-    }
-    if(false == __flash_addr2sector(addr + len -1,&end_sector))
-    {
-        return ret;
-    }
-
-    HAL_FLASH_Unlock();
-
-    para.TypeErase = FLASH_TYPEERASE_SECTORS;
-    para.Banks = 0;
-    para.Sector = begin_sector;
-    para.NbSectors = end_sector - begin_sector +1;
-    para.VoltageRange = FLASH_VOLTAGE_RANGE_1; 
-    if(HAL_OK == HAL_FLASHEx_Erase(&para, &sector_err))
-    {
-        ret = 0;
-    }
-    
-    HAL_FLASH_Lock();
-      
-    return ret;
+    return;
 }
 
-HAL_StatusTypeDef HAL_FLASH_Program(u32_t TypeProgram, u32_t Address, uint64_t Data);
-int hal_flash_write(const void* buf, s32_t len, u32_t* location)
+int hal_flash_erase(u32_t addr, s32_t len)
+{
+    return 0;
+}
+
+
+
+
+int hal_flash_erase_write(const void* buf, s32_t len, u32_t location)
 {
     uint8_t* pbuf;
     u32_t location_cur;
@@ -154,25 +122,71 @@ int hal_flash_write(const void* buf, s32_t len, u32_t* location)
     u32_t end_sector;
     u32_t i;
     u32_t sector_err;
-       
-    FLASH_EraseInitTypeDef flashret;
-    FLASH_EraseInitTypeDef para;
+    s32_t sectors;
     
+    s32_t e_begin;
+    s32_t e_num;
+    u32_t addrmask;
     
-    addr = *location;
+    FLASH_EraseInitTypeDef erasepara;
+    HAL_StatusTypeDef    retflash;
+    
+    addr = location;
     pbuf = (u8_t *)buf;
     
     if(false == __flash_addr2sector(addr,&begin_sector))
     {
+        printf("secmap: 0x%08x err\n\r",addr);
+
         return ret;
     }
     if(false == __flash_addr2sector(addr + len -1,&end_sector))
     {
+        printf("secmap: 0x%08x err\n\r",addr + len -1);
         return ret;
     }
-
-    HAL_FLASH_Unlock();
     
+    sectors = end_sector - begin_sector +1;
+ 
+    //check if we should erase it first
+    addrmask = ~(s_flash_secsize_tab[begin_sector]-1);
+    
+    if(0 == ( addr % s_flash_secsize_tab[begin_sector])) //begin of the sector.
+    {
+        e_begin = begin_sector;
+        e_num = sectors;
+    }
+    else
+    {
+        e_begin = begin_sector+1;
+        e_num = sectors--;
+    }
+    if(sectors > 0)
+    {
+        HAL_FLASH_Unlock();
+
+        erasepara.TypeErase = FLASH_TYPEERASE_SECTORS;
+        erasepara.Banks = 0;
+        erasepara.Sector = e_begin;
+        erasepara.NbSectors = e_num;
+        erasepara.VoltageRange = FLASH_VOLTAGE_RANGE_1; 
+        retflash = HAL_FLASHEx_Erase(&erasepara, &sector_err);
+
+        HAL_FLASH_Lock(); 
+        
+        if(HAL_OK != retflash)
+        {
+            printf("erase:start:%d  len:%d err\n\r",e_begin,e_num);
+            return ret;
+        }
+        else
+        {
+            printf("erase:start:%d  len:%d OK\n\r",e_begin,e_num);
+        }
+    }
+         
+    //write data
+    HAL_FLASH_Unlock();
     for (i =0;i<len; i++)
     {
         if(HAL_OK != HAL_FLASH_Program(FLASH_TYPEPROGRAM_BYTE,addr,(uint64_t )(*pbuf)))
@@ -188,33 +202,23 @@ int hal_flash_write(const void* buf, s32_t len, u32_t* location)
     {
         ret = 0;
     }
+    
+    printf("write %d:%d\r\n",i,len);
+    
     return ret;
 }
 
-int hal_flash_erase_write(const void* buf, s32_t len, u32_t location)
+int hal_flash_write(const void* buf, s32_t len, u32_t *location)
 {
-    if (NULL == buf)
-    {
-        return -1;
-    }
-
-    if (hal_flash_erase(location, len) != 0)
-    {
-        return -1;
-    }
-
-    if (hal_flash_write(buf, len, &location) != 0)
-    {
-        return -1;
-    }
-
-    return 0;
+    int ret;
+    
+    ret = hal_flash_erase_write(buf,len,*location);
+    
+    *location  += len;
+    
+    return ret;
 }
 
-void hal_flash_lock(void)
-{
-    (void)HAL_FLASH_Lock();
-}
 #include <shell.h>
 //here we add some shell command to test the flash driver  //flash_read  addr len
 static s32_t shell_flash_read(s32_t argc,const char *argv[])
@@ -262,7 +266,7 @@ static s32_t shell_flash_read(s32_t argc,const char *argv[])
 OSSHELL_EXPORT_CMD(shell_flash_read,"flashread","flashread addr len");
 
 //here we add some shell command to test the flash driver  //flash_read  addr len
-static s32_t shell_flash_ewrite(s32_t argc,const char *argv[])
+static s32_t shell_flash_write(s32_t argc,const char *argv[])
 {
     u32_t position;
     if(argc != 3)
@@ -285,7 +289,7 @@ static s32_t shell_flash_ewrite(s32_t argc,const char *argv[])
 
     return 0;
 }
-OSSHELL_EXPORT_CMD(shell_flash_ewrite,"flashwrite","flashwrite addr data");
+OSSHELL_EXPORT_CMD(shell_flash_write,"flashwrite","flashwrite addr data");
 
 
 

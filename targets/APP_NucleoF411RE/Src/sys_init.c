@@ -90,7 +90,15 @@ int atiny_random(void* output, size_t len)
     return 0;
 }
 
+#include <osport.h>
+#include <shell.h>
+
+
 void atiny_reboot(void)
 {
+
     HAL_NVIC_SystemReset();
+    
 }
+
+

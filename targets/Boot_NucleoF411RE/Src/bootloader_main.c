@@ -101,3 +101,15 @@ int fota_main(void)
     }
     return ret;
 }
+
+#include <shell.h>
+
+static s32_t shell_fota(s32_t argc,const char *argv[])
+{
+    fota_main();
+
+    return 0;
+}
+OSSHELL_EXPORT_CMD(shell_fota,"fota","fota");
+
+
